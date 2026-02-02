@@ -2,193 +2,144 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Gesture Controlled 3D Particles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Particle Core - Camera Fix</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
-        canvas { display: block; }
-        #video-container {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            width: 200px;
-            height: 150px;
-            border: 2px solid #333;
-            border-radius: 10px;
-            overflow: hidden;
-            z-index: 10;
-            opacity: 0.8;
-        }
-        #input_video {
+        /* 1. Make the page full screen black */
+        body, html {
+            margin: 0;
+            padding: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1); /* Mirror the video */
+            background-color: #000;
+            overflow: hidden; /* Stop scrolling */
+            font-family: 'Courier New', Courier, monospace;
         }
-        #ui {
+
+        /* 2. The Canvas where particles will live */
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 3. The UI Text Overlay (From your screenshot) */
+        #ui-layer {
             position: absolute;
             top: 20px;
             left: 20px;
-            color: white;
-            pointer-events: none;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 15px;
-            border-radius: 8px;
+            color: #fff;
+            pointer-events: none; /* Lets touches pass through to canvas */
+            font-size: 12px;
+            line-height: 1.6;
         }
-        h1 { margin: 0 0 10px 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; }
-        p { margin: 5px 0; font-size: 0.9rem; color: #ccc; }
-        .highlight { color: #00ffcc; font-weight: bold; }
+
+        .highlight { color: #FFA500; font-weight: bold; } /* Orange/Gold color */
+        .status { color: #00FFFF; font-weight: bold; }    /* Cyan color */
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <div id="ui">
-        <h1>Particle Core</h1>
-        <p>🖐 <b>1 Finger:</b> Heart Template</p>
-        <p>✌️ <b>2 Fingers:</b> Flower Template</p>
-        <p>🤟 <b>3 Fingers:</b> Saturn Template</p>
-        <p>🖖 <b>4 Fingers:</b> DNA Helix</p>
-        <p>✋ <b>Open Hand:</b> Firework Sphere</p>
+    <div id="ui-layer">
+        <strong>PARTICLE CORE</strong><br>
+        <span class="highlight">✌ 1 Finger:</span> Heart Template<br>
+        <span class="highlight">✌ 2 Fingers:</span> Flower Template<br>
+        <span class="highlight">✌ 3 Fingers:</span> Saturn Template<br>
+        <span class="highlight">✌ 4 Fingers:</span> DNA Helix<br>
+        <span class="highlight">✋ Open Hand:</span> Firework Sphere<br>
         <br>
-        <p>🤏 <b>Pinch:</b> Change Color & Expand</p>
-        <p>Current Mode: <span id="mode-display" class="highlight">Waiting...</span></p>
+        <span class="highlight">🤏 Pinch:</span> Change Color & Expand<br>
+        Current Mode: <span class="status" id="status-text">Waiting for Camera...</span>
     </div>
 
-    <div id="video-container">
-        <video id="input_video"></video>
-    </div>
+    <video id="webcam-feed" autoplay playsinline muted style="display:none;"></video>
 
-<script>
-    /** * CONFIGURATION 
-     */
-    const PARTICLE_COUNT = 3000;
-    const PARTICLE_SIZE = 0.15;
-    const LERP_SPEED = 0.08; // How fast particles fly to new shape
+    <canvas id="particle-canvas"></canvas>
 
-    /**
-     * THREE.JS SETUP
-     */
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000000, 0.02);
+    <script>
+        // --- 1. CAMERA SETUP ---
+        async function startCamera() {
+            const statusText = document.getElementById('status-text');
+            const video = document.getElementById('webcam-feed');
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 20;
+            try {
+                // Request camera with mobile-friendly constraints
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: "user", // "user" = Front Camera
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    document.body.appendChild(renderer.domElement);
+                video.srcObject = stream;
+                
+                // Wait for video to actually be ready to play
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        resolve();
+                    };
+                });
+                
+                video.play();
+                statusText.innerText = "Active";
+                statusText.style.color = "#00FF00"; // Green for success
+                
+                // Start the Animation Loop
+                requestAnimationFrame(loop);
 
-    // Particle System Variables
-    const particlesGeometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(PARTICLE_COUNT * 3);
-    const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
-    const colors = new Float32Array(PARTICLE_COUNT * 3);
-
-    // Initialize random positions
-    for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
-        positions[i] = (Math.random() - 0.5) * 50;
-        targetPositions[i] = positions[i];
-        colors[i] = 1; // White initially
-    }
-
-    particlesGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    particlesGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    // Shader Material for glowing particles
-    const textureLoader = new THREE.TextureLoader();
-    // Using a data URI for a simple glow texture to avoid external asset loading issues
-    const canvas = document.createElement('canvas');
-    canvas.width = 32; canvas.height = 32;
-    const context = canvas.getContext('2d');
-    const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
-    gradient.addColorStop(0, 'rgba(255,255,255,1)');
-    gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
-    gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0)');
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, 32, 32);
-    const particleTexture = new THREE.CanvasTexture(canvas);
-
-    const particlesMaterial = new THREE.PointsMaterial({
-        size: PARTICLE_SIZE,
-        map: particleTexture,
-        vertexColors: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        transparent: true
-    });
-
-    const particleSystem = new THREE.Points(particlesGeometry, particlesMaterial);
-    scene.add(particleSystem);
-
-    /**
-     * SHAPE GENERATORS
-     * Math formulas to set targetPositions
-     */
-    
-    // 1. Heart Shape
-    function setHeartShape(scale = 1) {
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const t = Math.random() * Math.PI * 2;
-            const x = 16 * Math.pow(Math.sin(t), 3);
-            const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-            const z = (Math.random() - 0.5) * 4; // Thickness
-            
-            targetPositions[i * 3] = x * 0.3 * scale;
-            targetPositions[i * 3 + 1] = y * 0.3 * scale;
-            targetPositions[i * 3 + 2] = z * scale;
-        }
-    }
-
-    // 2. Flower Shape
-    function setFlowerShape(scale = 1) {
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const theta = Math.random() * Math.PI * 2; // Angle around center
-            const phi = Math.random() * Math.PI; // Vertical angle
-            
-            // Flower petal math (polar coordinates)
-            const r = 4 + 2 * Math.sin(5 * theta); 
-            
-            targetPositions[i * 3] = r * Math.cos(theta) * scale;
-            targetPositions[i * 3 + 1] = r * Math.sin(theta) * scale;
-            targetPositions[i * 3 + 2] = (Math.random() - 0.5) * 2 * scale;
-        }
-    }
-
-    // 3. Saturn Shape
-    function setSaturnShape(scale = 1) {
-        const ringCount = Math.floor(PARTICLE_COUNT * 0.6);
-        const sphereCount = PARTICLE_COUNT - ringCount;
-
-        // Sphere
-        for (let i = 0; i < sphereCount; i++) {
-            const r = 3 * Math.cbrt(Math.random()); // Even volume distribution
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos(2 * Math.random() - 1);
-            
-            targetPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta) * scale;
-            targetPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * scale;
-            targetPositions[i * 3 + 2] = r * Math.cos(phi) * scale;
+            } catch (err) {
+                console.error("Camera Error:", err);
+                statusText.innerText = "DENIED / ERROR";
+                statusText.style.color = "red";
+                alert("Please enable Camera Permissions in your browser settings and refresh.");
+            }
         }
 
-        // Ring
-        for (let i = sphereCount; i < PARTICLE_COUNT; i++) {
-            const theta = Math.random() * Math.PI * 2;
-            const r = 5 + Math.random() * 2; // Radius 5 to 7
-            
-            targetPositions[i * 3] = r * Math.cos(theta) * scale;
-            targetPositions[i * 3 + 1] = (Math.random() - 0.5) * 0.2 * scale; // Flat Y
-            targetPositions[i * 3 + 2] = r * Math.sin(theta) * scale;
-            
-            // Tilt the ring
-            const x = targetPositions[i * 3];
-            const y = targetPositions[i * 3 + 1];
-            // Rotate around X axis slightly
-            const angle = 0.4;
-            targetPositions[i * 3 + 1] = y * Math.cos(angle) - targetPositions[i * 3 + 2] * Math.sin(angle);
-            targetPositions[i * 3 + 2] = y * Math.sin(angle) + targetPositions
+        // --- 2. CANVAS SETUP ---
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+        const video = document.getElementById('webcam-feed');
+
+        // Resize canvas to fit screen
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- 3. ANIMATION LOOP ---
+        function loop() {
+            // A. Clear the screen (fade effect)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // B. Draw Camera (Optional - remove this if you ONLY want particles)
+            // This draws a faint version of the camera so you know it works
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                const scale = Math.max(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
+                const x = (canvas.width / 2) - (video.videoWidth / 2) * scale;
+                const y = (canvas.height / 2) - (video.videoHeight / 2) * scale;
+                
+                ctx.globalAlpha = 0.2; // Make video faint
+                ctx.drawImage(video, x, y, video.videoWidth * scale, video.videoHeight * scale);
+                ctx.globalAlpha = 1.0; // Reset
+            }
+
+            // ============================================
+            // PASTE YOUR PARTICLE CODE LOGIC HERE
+            // If you have a file called 'particles.js', 
+            // you should link it below the body tag instead.
+            // ============================================
+
+            requestAnimationFrame(loop);
+        }
+
+        // Start everything on load
+        window.addEventListener('load', startCamera);
+
+    </script>
+</body>
+</html>
