@@ -3,137 +3,160 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Particle Core - Gestures Fixed</title>
+    <title>Particle Core - Final</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; }
-        canvas { display: block; width: 100vw; height: 100vh; transform: scaleX(-1); /* Mirror effect */ }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        canvas { display: block; }
         
         #ui-layer {
-            position: absolute; top: 10px; left: 10px; color: #fff; z-index: 10;
-            pointer-events: none; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px;
+            position: absolute; top: 10px; left: 10px; color: rgba(255,255,255,0.7); 
+            font-family: monospace; pointer-events: none;
         }
-        .highlight { color: #FFA500; font-weight: bold; }
-        .status { color: #00FFFF; font-weight: bold; font-size: 1.2em; }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
-        <strong>DEBUG MODE</strong><br>
-        <span class="highlight">Status:</span> <span id="status-text">Loading Model...</span><br>
-        <span class="highlight">Fingers Detected:</span> <span id="finger-count" class="status">-</span>
+        PARTICLE CORE v1.0<br>
+        Fingers Detected: <span id="finger-count" style="color:#0f0; font-weight:bold;">0</span>
     </div>
 
     <video id="input_video" style="display:none;" playsinline muted autoplay></video>
-    
     <canvas id="output_canvas"></canvas>
 
     <script>
         const videoElement = document.getElementById('input_video');
-        const canvasElement = document.getElementById('output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        const statusText = document.getElementById('status-text');
-        const fingerCountText = document.getElementById('finger-count');
+        const canvas = document.getElementById('output_canvas');
+        const ctx = canvas.getContext('2d');
+        const uiCount = document.getElementById('finger-count');
 
-        // Resize canvas function
+        let particles = [];
+        let fingerCount = 0;
+        let hue = 0;
+
+        // Resize Canvas
         function resize() {
-            canvasElement.width = window.innerWidth;
-            canvasElement.height = window.innerHeight;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
         }
         window.addEventListener('resize', resize);
         resize();
 
-        // --- 2. GESTURE LOGIC (The "Math") ---
+        // --- PARTICLE CLASS ---
+        class Particle {
+            constructor() {
+                this.x = canvas.width / 2;
+                this.y = canvas.height / 2;
+                this.size = Math.random() * 5 + 1;
+                this.speedX = Math.random() * 3 - 1.5;
+                this.speedY = Math.random() * 3 - 1.5;
+                
+                // Color changes based on Finger Count
+                if(fingerCount === 1) this.color = 'hsla(0, 100%, 50%, 0.8)';   // Red (Heart)
+                else if(fingerCount === 2) this.color = 'hsla(300, 100%, 50%, 0.8)'; // Pink (Flower)
+                else if(fingerCount === 3) this.color = 'hsla(200, 100%, 50%, 0.8)'; // Blue (Saturn)
+                else if(fingerCount >= 4) this.color = 'hsla(' + Math.random()*360 + ', 100%, 50%, 0.8)'; // Rainbow (Firework)
+                else this.color = 'hsla(0, 0%, 100%, 0.1)'; // White/Idle
+            }
+
+            update() {
+                this.x += this.speedX * (fingerCount + 1); // Move faster with more fingers
+                this.y += this.speedY * (fingerCount + 1);
+                if (this.size > 0.2) this.size -= 0.1;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function handleParticles() {
+            // Spawn particles if fingers are detected
+            if (fingerCount > 0) {
+                for (let i = 0; i < 5; i++) {
+                    particles.push(new Particle());
+                }
+            }
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+                
+                if (particles[i].size <= 0.3) {
+                    particles.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        // --- HAND TRACKING LOGIC ---
         function countFingers(landmarks) {
             let count = 0;
-            // Thumb (Logic: Tip x is outside IP x) - Simplified for right hand/mirroring
-            // Note: Thumb is tricky, this is a basic check
-            if (landmarks[4].x < landmarks[3].x) count++; 
-
-            // Other 4 fingers (Logic: Tip y is above PIP y)
-            // Index (8 vs 6)
-            if (landmarks[8].y < landmarks[6].y) count++;
-            // Middle (12 vs 10)
-            if (landmarks[12].y < landmarks[10].y) count++;
-            // Ring (16 vs 14)
-            if (landmarks[16].y < landmarks[14].y) count++;
-            // Pinky (20 vs 18)
-            if (landmarks[20].y < landmarks[18].y) count++;
-
+            if (landmarks[4].x < landmarks[3].x) count++; // Thumb
+            if (landmarks[8].y < landmarks[6].y) count++; // Index
+            if (landmarks[12].y < landmarks[10].y) count++; // Middle
+            if (landmarks[16].y < landmarks[14].y) count++; // Ring
+            if (landmarks[20].y < landmarks[18].y) count++; // Pinky
             return count;
         }
 
-        // --- 3. RESULTS HANDLER ---
         function onResults(results) {
-            // A. Clear screen
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            
-            // B. Draw Camera Feed (optional)
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            // 1. CLEAR SCREEN (Black background, no camera video)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Creates trails
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // C. Check if hands are found
+            // 2. UPDATE LOGIC
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                statusText.innerText = "Tracking Hand";
-                statusText.style.color = "#00FF00";
-
                 for (const landmarks of results.multiHandLandmarks) {
-                    // D. Draw Skeleton (Red lines)
-                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 5});
-                    drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 2});
-
-                    // E. Calculate Gestures
-                    const fingers = countFingers(landmarks);
-                    fingerCountText.innerText = fingers;
-
-                    // --- YOUR PARTICLE TRIGGERS GO HERE ---
-                    // if (fingers === 1) { ... triggerHeart() ... }
-                    // if (fingers === 2) { ... triggerFlower() ... }
+                    fingerCount = countFingers(landmarks);
+                    
+                    // Optional: Draw simple hand skeleton so you know where your hand is
+                    // (Comment out these 3 lines if you want TOTAL invisible hand)
+                    const indexFinger = landmarks[8];
+                    ctx.fillStyle = "#00FF00";
+                    ctx.beginPath();
+                    ctx.arc(indexFinger.x * canvas.width, indexFinger.y * canvas.height, 10, 0, Math.PI*2);
+                    ctx.fill();
                 }
             } else {
-                statusText.innerText = "Show Hand...";
-                statusText.style.color = "yellow";
-                fingerCountText.innerText = "0";
+                fingerCount = 0;
             }
-            canvasCtx.restore();
+
+            uiCount.innerText = fingerCount;
+
+            // 3. DRAW PARTICLES
+            handleParticles();
         }
 
-        // --- 4. INITIALIZE MEDIAPIPE HANDS ---
+        // --- SETUP MEDIAPIPE ---
         const hands = new Hands({locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }});
-
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
-
         hands.onResults(onResults);
 
-        // --- 5. START CAMERA (Mobile Safe) ---
+        // --- START CAMERA ---
         const camera = new Camera(videoElement, {
             onFrame: async () => {
                 await hands.send({image: videoElement});
             },
-            width: 1280,
-            height: 720
+            width: 640,
+            height: 480
         });
-
-        camera.start()
-            .then(() => { console.log("Camera started"); })
-            .catch(err => { 
-                console.error(err);
-                alert("Camera error: " + err); 
-            });
-
+        camera.start();
     </script>
 </body>
 </html>
