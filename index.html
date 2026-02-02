@@ -3,27 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Particle Core - Final</title>
+    <title>Particle Core - High Quality</title>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background: #000; overflow: hidden; 
+        }
         canvas { display: block; }
         
         #ui-layer {
-            position: absolute; top: 10px; left: 10px; color: rgba(255,255,255,0.7); 
-            font-family: monospace; pointer-events: none;
+            position: absolute; top: 10px; left: 10px; 
+            color: rgba(255,255,255,0.9); 
+            font-family: 'Courier New', monospace; 
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #333;
         }
+        .mode-text { color: #00FF00; font-weight: bold; text-transform: uppercase;}
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
-        PARTICLE CORE v1.0<br>
-        Fingers Detected: <span id="finger-count" style="color:#0f0; font-weight:bold;">0</span>
+        <strong>PARTICLE CORE SYSTEMS</strong><br>
+        Active Mode: <span id="mode-text" class="mode-text">WAITING...</span><br>
+        <small>Show fingers to activate core</small>
     </div>
 
     <video id="input_video" style="display:none;" playsinline muted autoplay></video>
@@ -33,13 +44,13 @@
         const videoElement = document.getElementById('input_video');
         const canvas = document.getElementById('output_canvas');
         const ctx = canvas.getContext('2d');
-        const uiCount = document.getElementById('finger-count');
+        const modeText = document.getElementById('mode-text');
 
         let particles = [];
         let fingerCount = 0;
-        let hue = 0;
+        let handX = canvas.width / 2;
+        let handY = canvas.height / 2;
 
-        // Resize Canvas
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -47,39 +58,72 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // --- PARTICLE CLASS ---
+        // --- THE ADVANCED PARTICLE ENGINE ---
         class Particle {
             constructor() {
-                this.x = canvas.width / 2;
-                this.y = canvas.height / 2;
-                this.size = Math.random() * 5 + 1;
-                this.speedX = Math.random() * 3 - 1.5;
-                this.speedY = Math.random() * 3 - 1.5;
+                this.x = handX;
+                this.y = handY;
+                // Bigger initial size
+                this.size = Math.random() * 15 + 5; 
+                this.weight = Math.random() * 2 - 0.5;
+                this.directionX = Math.random() * 4 - 2;
+                this.directionY = Math.random() * 4 - 2;
                 
-                // Color changes based on Finger Count
-                if(fingerCount === 1) this.color = 'hsla(0, 100%, 50%, 0.8)';   // Red (Heart)
-                else if(fingerCount === 2) this.color = 'hsla(300, 100%, 50%, 0.8)'; // Pink (Flower)
-                else if(fingerCount === 3) this.color = 'hsla(200, 100%, 50%, 0.8)'; // Blue (Saturn)
-                else if(fingerCount >= 4) this.color = 'hsla(' + Math.random()*360 + ', 100%, 50%, 0.8)'; // Rainbow (Firework)
-                else this.color = 'hsla(0, 0%, 100%, 0.1)'; // White/Idle
+                // Color & Behavior setup based on mode
+                if (fingerCount === 1) {
+                    this.color = `hsl(0, 100%, 60%)`; // Red
+                    this.directionY = Math.random() * -3 - 1; // Float UP
+                } else if (fingerCount === 2) {
+                    this.color = `hsl(120, 100%, 60%)`; // Green
+                    this.directionX = Math.cos(this.size) * 3; // Spiral math
+                    this.directionY = Math.sin(this.size) * 3;
+                } else if (fingerCount === 3) {
+                    this.color = `hsl(210, 100%, 60%)`; // Blue
+                } else if (fingerCount >= 4) {
+                    this.color = `hsl(${Math.random() * 360}, 100%, 60%)`; // Rainbow
+                    this.size = Math.random() * 25 + 5; // Giant particles
+                } else {
+                    this.color = 'white';
+                }
             }
 
             update() {
-                this.x += this.speedX * (fingerCount + 1); // Move faster with more fingers
-                this.y += this.speedY * (fingerCount + 1);
-                if (this.size > 0.2) this.size -= 0.1;
+                // Physics based on mode
+                if (fingerCount === 1) {
+                    this.y += this.directionY; // Rise up
+                    this.x += Math.sin(this.y * 0.05); // Wiggle
+                } else if (fingerCount === 2) {
+                    this.x += this.directionX;
+                    this.y += this.directionY;
+                    this.directionX *= 0.98; // Friction
+                    this.directionY *= 0.98;
+                } else {
+                    this.x += this.directionX;
+                    this.y += this.directionY;
+                }
+
+                // Shrink over time
+                if (this.size > 0.3) this.size -= 0.3;
             }
 
             draw() {
-                ctx.fillStyle = this.color;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                
+                // ADDING THE GLOW
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                
                 ctx.fill();
+                
+                // Reset shadow to save performance
+                ctx.shadowBlur = 0;
             }
         }
 
         function handleParticles() {
-            // Spawn particles if fingers are detected
+            // Spawn rate: 5 particles every frame
             if (fingerCount > 0) {
                 for (let i = 0; i < 5; i++) {
                     particles.push(new Particle());
@@ -89,17 +133,18 @@
             for (let i = 0; i < particles.length; i++) {
                 particles[i].update();
                 particles[i].draw();
-                
-                if (particles[i].size <= 0.3) {
+
+                if (particles[i].size <= 0.5) {
                     particles.splice(i, 1);
                     i--;
                 }
             }
         }
 
-        // --- HAND TRACKING LOGIC ---
+        // --- TRACKING LOGIC ---
         function countFingers(landmarks) {
             let count = 0;
+            // Basic finger counting logic
             if (landmarks[4].x < landmarks[3].x) count++; // Thumb
             if (landmarks[8].y < landmarks[6].y) count++; // Index
             if (landmarks[12].y < landmarks[10].y) count++; // Middle
@@ -109,54 +154,52 @@
         }
 
         function onResults(results) {
-            // 1. CLEAR SCREEN (Black background, no camera video)
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Creates trails
+            // 1. CREATE TRAILS (Don't clear fully, just dim the previous frame)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; 
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 2. UPDATE LOGIC
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                for (const landmarks of results.multiHandLandmarks) {
-                    fingerCount = countFingers(landmarks);
-                    
-                    // Optional: Draw simple hand skeleton so you know where your hand is
-                    // (Comment out these 3 lines if you want TOTAL invisible hand)
-                    const indexFinger = landmarks[8];
-                    ctx.fillStyle = "#00FF00";
-                    ctx.beginPath();
-                    ctx.arc(indexFinger.x * canvas.width, indexFinger.y * canvas.height, 10, 0, Math.PI*2);
-                    ctx.fill();
-                }
+                const landmarks = results.multiHandLandmarks[0];
+                fingerCount = countFingers(landmarks);
+
+                // Update Hand Position (Center of palm roughly)
+                handX = landmarks[9].x * canvas.width;
+                handY = landmarks[9].y * canvas.height;
+
+                // Update UI text
+                if(fingerCount === 1) modeText.innerText = "HEART RISING";
+                else if(fingerCount === 2) modeText.innerText = "NATURE SPIRAL";
+                else if(fingerCount === 3) modeText.innerText = "ATOMIC SWARM";
+                else if(fingerCount >= 4) modeText.innerText = "SUPERNOVA";
+                else modeText.innerText = "IDLE";
+                
+                // Optional: Draw a "Core" at your hand position
+                ctx.beginPath();
+                ctx.arc(handX, handY, 10, 0, Math.PI * 2);
+                ctx.fillStyle = "white";
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = "white";
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
             } else {
                 fingerCount = 0;
+                modeText.innerText = "WAITING FOR HAND...";
             }
 
-            uiCount.innerText = fingerCount;
-
-            // 3. DRAW PARTICLES
             handleParticles();
         }
 
-        // --- SETUP MEDIAPIPE ---
-        const hands = new Hands({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }});
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
         hands.onResults(onResults);
 
-        // --- START CAMERA ---
         const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 640,
-            height: 480
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 1280, height: 720
         });
         camera.start();
+
     </script>
 </body>
 </html>
